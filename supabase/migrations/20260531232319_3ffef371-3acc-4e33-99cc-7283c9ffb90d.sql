@@ -1,0 +1,1 @@
+ALTER TABLE public.variantes_produto DROP CONSTRAINT IF EXISTS variantes_produto_comprimento_check;

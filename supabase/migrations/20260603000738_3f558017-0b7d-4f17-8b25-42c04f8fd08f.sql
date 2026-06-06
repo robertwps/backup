@@ -1,0 +1,1 @@
+UPDATE public.categorias SET slug = 'pingentes' WHERE id = 'aad5eed9-a2ce-40aa-aab5-519a3a433764';

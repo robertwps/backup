@@ -1,0 +1,181 @@
+@import "tailwindcss" source(none);
+@source "../src";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+/* =========================================================
+   ELITE316 / PLATINUM 316L — Industrial Luxury Design System
+   Dark texturizado · Cinza Platina · Dourado Velho
+   ========================================================= */
+
+@theme inline {
+  --font-display: "Bebas Neue", "Oswald", "Arial Narrow", sans-serif;
+  --font-sans: "Inter", "Helvetica Neue", system-ui, sans-serif;
+
+  --radius-sm: 2px;
+  --radius-md: 4px;
+  --radius-lg: 6px;
+  --radius-xl: 10px;
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-info: var(--info);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-gold: var(--gold);
+  --color-gold-foreground: var(--gold-foreground);
+  --color-platinum: var(--platinum);
+  --color-graphite: var(--graphite);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+}
+
+:root {
+  --radius: 0.25rem;
+
+  /* Core dark theme */
+  --background: oklch(0.13 0.005 270);
+  --foreground: oklch(0.96 0.005 90);
+
+  --card: oklch(0.17 0.006 270);
+  --card-foreground: oklch(0.96 0.005 90);
+
+  --popover: oklch(0.15 0.006 270);
+  --popover-foreground: oklch(0.96 0.005 90);
+
+  /* Primary = platinum white */
+  --primary: oklch(0.92 0.005 90);
+  --primary-foreground: oklch(0.13 0.005 270);
+
+  --secondary: oklch(0.22 0.006 270);
+  --secondary-foreground: oklch(0.92 0.005 90);
+
+  --muted: oklch(0.20 0.006 270);
+  --muted-foreground: oklch(0.66 0.012 90);
+
+  --accent: oklch(0.25 0.008 270);
+  --accent-foreground: oklch(0.96 0.005 90);
+
+  --destructive: oklch(0.58 0.22 25);
+  --destructive-foreground: oklch(0.98 0.005 90);
+  --success: oklch(0.65 0.15 145);
+  --warning: oklch(0.78 0.16 75);
+  --info: oklch(0.65 0.13 235);
+
+  --border: oklch(0.27 0.006 270);
+  --input: oklch(0.22 0.006 270);
+  --ring: oklch(0.75 0.10 80);
+
+  /* Brand */
+  --gold: oklch(0.74 0.12 80);            /* Dourado Velho */
+  --gold-foreground: oklch(0.13 0.005 270);
+  --platinum: oklch(0.82 0.005 90);       /* Cinza Platina */
+  --graphite: oklch(0.20 0.006 270);
+
+  --chart-1: oklch(0.74 0.12 80);
+  --chart-2: oklch(0.82 0.005 90);
+  --chart-3: oklch(0.65 0.15 145);
+  --chart-4: oklch(0.65 0.13 235);
+  --chart-5: oklch(0.58 0.22 25);
+
+  --sidebar: oklch(0.10 0.005 270);
+  --sidebar-foreground: oklch(0.92 0.005 90);
+  --sidebar-primary: oklch(0.74 0.12 80);
+  --sidebar-primary-foreground: oklch(0.13 0.005 270);
+  --sidebar-accent: oklch(0.18 0.006 270);
+  --sidebar-accent-foreground: oklch(0.96 0.005 90);
+  --sidebar-border: oklch(0.22 0.006 270);
+  --sidebar-ring: oklch(0.74 0.12 80);
+
+  /* Gradients & shadows */
+  --gradient-hero: linear-gradient(135deg, oklch(0.10 0.005 270) 0%, oklch(0.17 0.006 270) 60%, oklch(0.22 0.008 270) 100%);
+  --gradient-gold: linear-gradient(135deg, oklch(0.78 0.13 82) 0%, oklch(0.68 0.13 75) 100%);
+  --shadow-elegant: 0 20px 60px -20px oklch(0 0 0 / 0.6);
+  --shadow-gold: 0 10px 40px -10px oklch(0.74 0.12 80 / 0.35);
+}
+
+.dark {
+  /* same — site is always dark */
+}
+
+@layer base {
+  * { border-color: var(--color-border); }
+  html { color-scheme: dark; }
+  body {
+    background-color: var(--color-background);
+    color: var(--color-foreground);
+    font-family: var(--font-sans);
+    /* subtle texture */
+    background-image:
+      radial-gradient(at 30% 10%, oklch(0.20 0.006 270 / 0.6) 0, transparent 50%),
+      radial-gradient(at 80% 80%, oklch(0.18 0.008 270 / 0.5) 0, transparent 50%);
+    background-attachment: fixed;
+  }
+  h1, h2, h3, .font-display {
+    font-family: var(--font-display);
+    letter-spacing: 0.02em;
+  }
+}
+
+@layer utilities {
+  .text-gold { color: var(--gold); }
+  .bg-gold { background-color: var(--gold); }
+  .border-gold { border-color: var(--gold); }
+  .bg-gradient-hero { background-image: var(--gradient-hero); }
+  .bg-gradient-gold { background-image: var(--gradient-gold); }
+  .shadow-elegant { box-shadow: var(--shadow-elegant); }
+  .shadow-gold { box-shadow: var(--shadow-gold); }
+  .text-platinum { color: var(--platinum); }
+  .bg-texture-dark {
+    background-color: var(--background);
+    background-image:
+      linear-gradient(135deg, transparent 49%, oklch(1 0 0 / 0.015) 50%, transparent 51%),
+      linear-gradient(45deg, transparent 49%, oklch(1 0 0 / 0.015) 50%, transparent 51%);
+    background-size: 6px 6px;
+  }
+  .transition-luxury {
+    transition: all 350ms cubic-bezier(0.4, 0, 0.2, 1);
+  }
+}
+
+/* Embla carousel basics */
+.embla__viewport { overflow: hidden; }
+.embla__container { display: flex; }
+.embla__slide { flex: 0 0 100%; min-width: 0; }
+
+/* Hide any third-party "Edit with Lovable" / platform watermark badge on the live site */
+#lovable-badge,
+a#lovable-badge,
+[id^="lovable-badge"],
+[class*="lovable-badge"],
+[data-lovable-badge],
+a[href*="lovable.dev"][target="_blank"][rel*="noopener"] {
+  display: none !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
+  opacity: 0 !important;
+}
