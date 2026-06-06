@@ -5,7 +5,9 @@ import { supabase } from "@/integrations/supabase/client";
 import {
   atualizarStatusPedidoAdmin,
   excluirPedidoAdmin,
+  enviarRecuperacaoEmailAdmin,
   listarPedidosAdmin,
+  registrarOrigemRecuperacaoAdmin,
 } from "@/lib/admin-pedidos.functions";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -111,6 +113,9 @@ type Pedido = {
   endereco_id: string | null;
   cliente_id: string | null;
   carrinho_abandonado?: boolean;
+  abandoned_email_sent?: boolean;
+  recuperacao_origem?: string | null;
+  recuperado_em?: string | null;
   clientes?: Cliente | null;
   enderecos?: Endereco | null;
   itens_pedido?: ItemPedido[] | null;
@@ -130,6 +135,8 @@ function AdminPedidos() {
   const listarPedidos = useServerFn(listarPedidosAdmin);
   const excluirPedido = useServerFn(excluirPedidoAdmin);
   const atualizarStatusPedido = useServerFn(atualizarStatusPedidoAdmin);
+  const enviarRecuperacaoEmail = useServerFn(enviarRecuperacaoEmailAdmin);
+  const registrarOrigemRecuperacao = useServerFn(registrarOrigemRecuperacaoAdmin);
   const [pedidos, setPedidos] = useState<Pedido[]>([]);
   const [itensMap, setItensMap] = useState<Record<string, ItemPedido[]>>({});
   const [loading, setLoading] = useState(true);
@@ -154,6 +161,33 @@ function AdminPedidos() {
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Falha ao excluir pedido.");
       setDeleteTarget(null);
+    }
+  };
+
+  const handleSendRecoveryEmail = async (p: Pedido) => {
+    try {
+      await enviarRecuperacaoEmail({ data: { pedidoId: p.id } });
+      toast.success(`E-mail de recuperação enviado para ${p.nome_contato ?? "cliente"}.`);
+      await load();
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Falha ao enviar e-mail de recuperação.",
+      );
+    }
+  };
+
+  const handleRegisterRecoverySource = async (
+    p: Pedido,
+    origem: "email_manual" | "whatsapp" | "popup",
+  ) => {
+    try {
+      await registrarOrigemRecuperacao({ data: { pedidoId: p.id, origem } });
+      if (origem !== "whatsapp") {
+        toast.success("Origem de recuperação registrada.");
+      }
+      await load();
+    } catch (error) {
+      console.error(error);
     }
   };
 
@@ -344,7 +378,11 @@ function AdminPedidos() {
                 <Loader2 className="size-6 animate-spin text-indigo-400" />
               </div>
             ) : (
-              <AbandonadosTable pedidos={filterList(abandonados)} />
+              <AbandonadosTable
+                pedidos={filterList(abandonados)}
+                onSendEmail={handleSendRecoveryEmail}
+                onRegisterSource={handleRegisterRecoverySource}
+              />
             )}
           </Card>
         </TabsContent>
@@ -518,7 +556,15 @@ function PedidosTable({
 }
 
 // ============ CARRINHOS ABANDONADOS ============
-function AbandonadosTable({ pedidos }: { pedidos: Pedido[] }) {
+function AbandonadosTable({
+  pedidos,
+  onSendEmail,
+  onRegisterSource,
+}: {
+  pedidos: Pedido[];
+  onSendEmail: (p: Pedido) => Promise<void>;
+  onRegisterSource: (p: Pedido, origem: "email_manual" | "whatsapp" | "popup") => Promise<void>;
+}) {
   if (pedidos.length === 0) {
     return (
       <p className="p-8 text-center text-sm text-slate-400">
@@ -569,21 +615,35 @@ function AbandonadosTable({ pedidos }: { pedidos: Pedido[] }) {
               </td>
               <td className="px-4 py-3 font-semibold text-white">{brl(p.total)}</td>
               <td className="px-4 py-3">
-                <div className="flex justify-end gap-2">
-                  <a href={whatsappLink(p)} target="_blank" rel="noreferrer">
-                    <Button size="sm" className="bg-emerald-500 text-white hover:bg-emerald-400">
+                <div className="flex flex-col gap-2">
+                  <div className="flex justify-end gap-2">
+                    <Button
+                      size="sm"
+                      className="bg-emerald-500 text-white hover:bg-emerald-400"
+                      onClick={async () => {
+                        await onRegisterSource(p, "whatsapp");
+                        window.open(whatsappLink(p), "_blank", "noopener,noreferrer");
+                      }}
+                    >
                       <MessageCircle className="mr-1 size-4" /> WhatsApp
                     </Button>
-                  </a>
-                  <a href={mailtoLink(p)}>
                     <Button
                       size="sm"
                       variant="outline"
                       className="border-slate-700 bg-slate-950 text-slate-200 hover:bg-slate-800"
+                      onClick={async () => {
+                        await onRegisterSource(p, "email_manual");
+                        window.location.href = mailtoLink(p);
+                      }}
                     >
                       <Mail className="mr-1 size-4" /> E-mail
                     </Button>
-                  </a>
+                  </div>
+                  {p.abandoned_email_sent && (
+                    <div className="text-right text-[11px] text-emerald-300">
+                      E-mail automático já disparado
+                    </div>
+                  )}
                 </div>
               </td>
             </tr>

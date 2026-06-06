@@ -3,8 +3,9 @@ import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { enviarEmailServer } from "@/lib/emails.server";
 import { htmlPedidoConfirmado } from "@/lib/emails";
+import { getAsaasBase, getAsaasApiKey } from "@/lib/asaas.config";
 
-const ASAAS_BASE = "https://api.asaas.com/v3";
+const ASAAS_BASE = getAsaasBase();
 
 type AsaasErrorResponse = {
   errors?: Array<{ description?: string }>;
@@ -13,7 +14,7 @@ type AsaasErrorResponse = {
 };
 
 function getApiKey() {
-  return process.env.ASAAS_API_KEY || null;
+  return getAsaasApiKey();
 }
 
 async function asaas<T>(path: string, init?: RequestInit): Promise<T> {
@@ -74,6 +75,13 @@ export const criarCobrancaPix = createServerFn({ method: "POST" })
           cidade: z.string().min(1).max(120),
           estado: z.string().min(2).max(2),
         }),
+        subtotal: z.number().positive(),
+        desconto: z.number().nonnegative().default(0),
+        cupomCodigo: z.string().max(100).optional().nullable(),
+        referidoPor: z.string().uuid().optional().nullable(),
+        referralAmountUsed: z.number().nonnegative().default(0),
+        frete: z.number().nonnegative().default(0),
+        freteTipo: z.string().max(50).optional().nullable(),
         itens: z.array(itemSchema).default([]),
       })
       .parse(input),
@@ -203,10 +211,11 @@ export const criarCobrancaPix = createServerFn({ method: "POST" })
         .insert({
           status: "pendente",
           metodo_pagamento: "PIX",
-          subtotal: data.valor,
+          subtotal: data.subtotal,
           total: data.valor,
-          frete: 0,
-          desconto: 0,
+          frete: data.frete,
+          frete_tipo: data.freteTipo,
+          desconto: data.desconto,
           carrinho_abandonado: false,
           nome_contato: data.nome,
           email_contato: data.email,
@@ -214,6 +223,9 @@ export const criarCobrancaPix = createServerFn({ method: "POST" })
           codigo_rastreio: paymentId,
           cliente_id: clienteId,
           endereco_id: enderecoId,
+          cupom_codigo: data.cupomCodigo,
+          referido_por: data.referidoPor,
+          referral_credit_applied: false,
         })
         .select("id, numero")
         .single();
@@ -257,6 +269,21 @@ export const criarCobrancaPix = createServerFn({ method: "POST" })
               .eq("id", vid);
           }
         }
+      }
+
+      if (data.referralAmountUsed > 0 && clienteId) {
+        const { data: clienteAtual } = await supabase
+          .from("clientes")
+          .select("referral_balance")
+          .eq("id", clienteId)
+          .maybeSingle();
+
+        const currentBalance = Number(clienteAtual?.referral_balance ?? 0);
+        const newBalance = Math.max(0, currentBalance - data.referralAmountUsed);
+        await supabase
+          .from("clientes")
+          .update({ referral_balance: newBalance })
+          .eq("id", clienteId);
       }
 
       // E-mail de confirmação do pedido com instruções de PIX

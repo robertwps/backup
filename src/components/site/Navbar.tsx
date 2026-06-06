@@ -3,6 +3,7 @@ import { ShoppingBag, User, Menu, X, Crown } from "lucide-react";
 import { useState, useEffect } from "react";
 import { useCart, cartDrawer } from "@/lib/cart-store";
 import { Button } from "@/components/ui/button";
+import { NotificationsBell } from "@/components/site/NotificationsBell";
 import { supabase } from "@/integrations/supabase/client";
 import type { User as SupabaseUser } from "@supabase/supabase-js";
 
@@ -60,6 +61,7 @@ export function Navbar() {
               </Button>
             </Link>
           )}
+          {!isAdmin && user && <NotificationsBell user={user} />}
           <Link to="/minha-conta">
             <Button variant="ghost" size="icon" aria-label="Área do cliente">
               <User className="size-5" />

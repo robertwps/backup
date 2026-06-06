@@ -1,5 +1,5 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import { Navbar } from "@/components/site/Navbar";
 import { Footer } from "@/components/site/Footer";
@@ -18,6 +18,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
 import { ShoppingBag, Copy, CheckCircle2, CreditCard, QrCode, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
@@ -43,6 +44,8 @@ type CobrancaPix = {
 };
 
 const onlyDigits = (s: string) => s.replace(/\D/g, "");
+const CHECKOUT_STORAGE_KEY = "elite316-checkout-contact-address";
+const EXIT_INTENT_KEY = "elite316_exit_intent_shown";
 
 function CheckoutPage() {
   const { items, subtotal } = useCart();
@@ -74,10 +77,213 @@ function CheckoutPage() {
   const [enderecoCarregado, setEnderecoCarregado] = useState(false);
   const [editandoEndereco, setEditandoEndereco] = useState(true);
 
+  const [frete, setFrete] = useState(0);
+  const [freteTipo, setFreteTipo] = useState<string | null>(null);
+  const [missingFields, setMissingFields] = useState<string[]>([]);
   const [openPay, setOpenPay] = useState(false);
   const [status, setStatus] = useState<"idle" | "pendente">("idle");
   const [loading, setLoading] = useState(false);
   const [cobranca, setCobranca] = useState<CobrancaPix | null>(null);
+  const [couponCode, setCouponCode] = useState("");
+  const [couponInfo, setCouponInfo] = useState<{ codigo: string; tipo: string; valor: number } | null>(null);
+  const [couponError, setCouponError] = useState<string | null>(null);
+  const [couponApplied, setCouponApplied] = useState(false);
+  const [referralBalance, setReferralBalance] = useState(0);
+  const [useReferralBalance, setUseReferralBalance] = useState(false);
+  const [referralCode, setReferralCode] = useState<string | null>(null);
+  const [referralId, setReferralId] = useState<string | null>(null);
+  const [showExitModal, setShowExitModal] = useState(false);
+  const couponDiscount = useMemo(() => {
+    if (!couponInfo) return 0;
+    if (couponInfo.tipo === "percentual") {
+      return Math.min((subtotal * couponInfo.valor) / 100, subtotal);
+    }
+    return Math.min(couponInfo.valor, subtotal);
+  }, [couponInfo, subtotal]);
+  const referralDiscount = useMemo(() => {
+    if (!useReferralBalance || referralBalance <= 0) return 0;
+    return Math.min(referralBalance, Math.max(subtotal - couponDiscount, 0));
+  }, [couponDiscount, referralBalance, subtotal, useReferralBalance]);
+  const total = useMemo(() => Math.max(subtotal + frete - couponDiscount - referralDiscount, 0), [couponDiscount, frete, referralDiscount, subtotal]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const saved = window.localStorage.getItem(CHECKOUT_STORAGE_KEY);
+      if (!saved) return;
+      const data = JSON.parse(saved) as Partial<{
+        nome: string;
+        email: string;
+        cpf: string;
+        telefone: string;
+        cep: string;
+        rua: string;
+        numero: string;
+        complemento: string;
+        bairro: string;
+        cidade: string;
+        estado: string;
+      }>;
+      if (data.nome) setNome(data.nome);
+      if (data.email) setEmail(data.email);
+      if (data.cpf) setCpf(data.cpf);
+      if (data.telefone) setTelefone(data.telefone);
+      if (data.cep) setCep(data.cep);
+      if (data.rua) setRua(data.rua);
+      if (data.numero) setNumero(data.numero);
+      if (data.complemento) setComplemento(data.complemento);
+      if (data.bairro) setBairro(data.bairro);
+      if (data.cidade) setCidade(data.cidade);
+      if (data.estado) setEstado(data.estado);
+    } catch (error) {
+      console.warn("[checkout] não foi possível carregar dados salvos", error);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const storedCode = window.localStorage.getItem("elite316_referral_code");
+    if (storedCode) {
+      setReferralCode(storedCode.toUpperCase());
+    }
+
+    let mounted = true;
+    void (async () => {
+      try {
+        const { data: userData } = await supabase.auth.getUser();
+        const user = userData.user;
+        if (!user || !mounted) return;
+
+        const [{ data: clientRow }, { data: referrerRow }] = await Promise.all([
+          supabase
+            .from("clientes")
+            .select("referral_balance, referral_code")
+            .eq("id", user.id)
+            .maybeSingle(),
+          storedCode
+            ? supabase
+                .from("clientes")
+                .select("id")
+                .eq("referral_code", storedCode.toUpperCase())
+                .maybeSingle()
+            : Promise.resolve({ data: null }),
+        ]);
+
+        if (!mounted) return;
+        if (clientRow) {
+          setReferralBalance(Number(clientRow.referral_balance ?? 0));
+          if (!clientRow.referral_code) {
+            const generated = user.id.replace(/-/g, "").slice(0, 8).toUpperCase();
+            await supabase.from("clientes").update({ referral_code: generated }).eq("id", user.id);
+            setReferralCode(generated);
+          } else {
+            setReferralCode(clientRow.referral_code);
+          }
+        }
+
+        if (referrerRow?.id && referrerRow.id !== user.id) {
+          setReferralId(referrerRow.id);
+        }
+      } catch (error) {
+        console.warn("[checkout] erro ao carregar dados de indicação", error);
+      }
+    })();
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (showExitModal) return;
+    const today = new Date().toISOString().slice(0, 10);
+    const alreadyShown = typeof window !== "undefined" && window.localStorage.getItem(EXIT_INTENT_KEY) === today;
+    if (alreadyShown) return;
+
+    const handleMouseLeave = (event: MouseEvent) => {
+      if (event.clientY <= 20 && !showExitModal && items.length > 0) {
+        setShowExitModal(true);
+        window.localStorage.setItem(EXIT_INTENT_KEY, today);
+      }
+    };
+
+    window.addEventListener("mouseout", handleMouseLeave);
+    return () => {
+      window.removeEventListener("mouseout", handleMouseLeave);
+    };
+  }, [items.length, showExitModal]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const payload = {
+        nome,
+        email,
+        cpf,
+        telefone,
+        cep,
+        rua,
+        numero,
+        complemento,
+        bairro,
+        cidade,
+        estado,
+      };
+      window.localStorage.setItem(CHECKOUT_STORAGE_KEY, JSON.stringify(payload));
+    } catch (error) {
+      console.warn("[checkout] não foi possível salvar dados", error);
+    }
+  }, [nome, email, cpf, telefone, cep, rua, numero, complemento, bairro, cidade, estado]);
+
+  const limparDadosLocalStorage = () => {
+    if (typeof window === "undefined") return;
+    window.localStorage.removeItem(CHECKOUT_STORAGE_KEY);
+  };
+
+  const aplicarCupom = async (codigo?: string) => {
+    const codeToCheck = (codigo ?? couponCode).trim().toUpperCase();
+    console.log("[checkout] aplicando cupom:", { codeToCheck, received: codigo });
+    
+    if (!codeToCheck) {
+      console.log("[checkout] cupom vazio, exibindo erro");
+      setCouponError("Digite um cupom para aplicar.");
+      setCouponApplied(false);
+      return;
+    }
+    
+    setCouponCode(codeToCheck);
+    setCouponError(null);
+    try {
+      console.log("[checkout] consultando cupom na base de dados");
+      const { data, error } = await supabase
+        .from("cupons")
+        .select("codigo, tipo, valor")
+        .eq("codigo", codeToCheck)
+        .eq("ativa", true)
+        .maybeSingle();
+      if (error) throw error;
+      
+      if (!data) {
+        console.log("[checkout] cupom não encontrado:", codeToCheck);
+        setCouponError("Cupom não encontrado ou inativo.");
+        setCouponApplied(false);
+        setCouponInfo(null);
+        return;
+      }
+      
+      console.log("[checkout] cupom válido:", data);
+      setCouponInfo({ codigo: data.codigo, tipo: data.tipo, valor: Number(data.valor) });
+      setCouponApplied(true);
+      toast.success(`Cupom ${data.codigo} aplicado.`);
+    } catch (error) {
+      console.error("[checkout] erro ao validar cupom", error);
+      setCouponError(
+        error instanceof Error ? error.message : "Não foi possível validar o cupom."
+      );
+      setCouponApplied(false);
+      setCouponInfo(null);
+    }
+  };
 
   useEffect(() => {
     let mounted = true;
@@ -129,6 +335,21 @@ function CheckoutPage() {
     };
   }, []);
 
+  function validarCamposObrigatorios() {
+    const missing: string[] = [];
+    if (!nome.trim()) missing.push("Nome completo");
+    if (!email.trim()) missing.push("E-mail");
+    if (!cpf.trim()) missing.push("CPF");
+    if (!telefone.trim()) missing.push("WhatsApp");
+    if (!cep.trim()) missing.push("CEP");
+    if (!rua.trim()) missing.push("Rua");
+    if (!numero.trim()) missing.push("Número");
+    if (!bairro.trim()) missing.push("Bairro");
+    if (!cidade.trim()) missing.push("Cidade");
+    if (!estado.trim()) missing.push("UF");
+    return missing;
+  }
+
   async function handleCepChange(value: string) {
     const masked = onlyDigits(value).slice(0, 8);
     setCep(masked);
@@ -153,7 +374,33 @@ function CheckoutPage() {
   }
 
   async function abrirPagamento() {
-    if (subtotal <= 0) return;
+    console.log("[checkout] abrirPagamento iniciado", {
+      subtotal,
+      frete,
+      freteTipo,
+      total,
+      loading,
+    });
+
+    if (subtotal <= 0) {
+      console.warn("[checkout] subtotal inválido:", subtotal);
+      toast.error("Carrinho vazio. Adicione itens antes de finalizar.");
+      return;
+    }
+
+    const missing = validarCamposObrigatorios();
+    if (missing.length > 0) {
+      console.warn("[checkout] campos obrigatórios faltando:", missing);
+      setMissingFields(missing);
+      toast.error("Preencha os campos obrigatórios.");
+      return;
+    }
+
+    if (!freteTipo) {
+      console.warn("[checkout] frete não selecionado");
+      toast.error("Selecione o frete antes de finalizar o pedido.");
+      return;
+    }
 
     let nomeFinal = nome.trim();
     let emailFinal = email.trim();
@@ -194,12 +441,24 @@ function CheckoutPage() {
       !cidade.trim() ||
       estado.trim().length !== 2
     ) {
+      const missing = validarCamposObrigatorios();
+      if (missing.length > 0) {
+        setMissingFields(missing);
+      }
       toast.error("Por favor, preencha todos os seus dados de envio e contato!");
       return;
     }
 
+    setMissingFields([]);
     setLoading(true);
     setPixConfirmado(false);
+    console.log("[checkout] enviando cobrança PIX com dados:", {
+      nome: nomeFinal,
+      email: emailFinal,
+      valor: Number(total.toFixed(2)),
+      frete,
+      freteTipo,
+    });
     try {
       const result = await gerarCobranca({
         data: {
@@ -207,7 +466,14 @@ function CheckoutPage() {
           email: emailFinal,
           cpfCnpj: cpfDigits,
           telefone: telDigits,
-          valor: Number(subtotal.toFixed(2)),
+          valor: Number(total.toFixed(2)),
+          subtotal: Number(subtotal.toFixed(2)),
+          desconto: Number((couponDiscount + referralDiscount).toFixed(2)),
+          cupomCodigo: couponInfo?.codigo ?? null,
+          referidoPor: referralId,
+          referralAmountUsed: referralDiscount,
+          frete: Number(frete.toFixed(2)),
+          freteTipo,
           descricao: `Pedido ELITE316 — ${items.length} item(s)`,
           endereco: {
             cep: cepDigits,
@@ -228,6 +494,7 @@ function CheckoutPage() {
           })),
         },
       });
+      console.log("[checkout] cobrança gerada com sucesso:", result);
       setCobranca(result);
       setStatus("pendente");
       setOpenPay(true);
@@ -277,6 +544,7 @@ function CheckoutPage() {
   useEffect(() => {
     if (!pixConfirmado) return;
     const t = setTimeout(() => {
+      limparDadosLocalStorage();
       cart.clear();
       setOpenPay(false);
       navigate({ to: "/pedido-sucesso" });
@@ -287,6 +555,11 @@ function CheckoutPage() {
   async function pagarComCartao() {
     if (cardLoading) return;
     setCardError(null);
+
+    if (!freteTipo) {
+      setCardError("Selecione o frete antes de finalizar o pedido.");
+      return;
+    }
 
     const nomeFinal = nome.trim();
     const emailFinal = email.trim();
@@ -306,6 +579,10 @@ function CheckoutPage() {
       !cidade.trim() ||
       estado.trim().length !== 2
     ) {
+      const missing = validarCamposObrigatorios();
+      if (missing.length > 0) {
+        setMissingFields(missing);
+      }
       setCardError("Preencha todos os seus dados pessoais e de entrega antes de pagar.");
       return;
     }
@@ -318,6 +595,14 @@ function CheckoutPage() {
     }
 
     setCardLoading(true);
+    console.log("[checkout] iniciando pagamento por cartão com dados:", {
+      nome: nomeFinal,
+      email: emailFinal,
+      valor: Number(total.toFixed(2)),
+      frete,
+      freteTipo,
+      cardNumber: `****${cardNumber.slice(-4)}`,
+    });
     try {
       await pagarCartao({
         data: {
@@ -325,7 +610,14 @@ function CheckoutPage() {
           email: emailFinal,
           cpfCnpj: cpfDigits,
           telefone: telDigits,
-          valor: Number(subtotal.toFixed(2)),
+          valor: Number(total.toFixed(2)),
+          subtotal: Number(subtotal.toFixed(2)),
+          desconto: Number((couponDiscount + referralDiscount).toFixed(2)),
+          cupomCodigo: couponInfo?.codigo ?? null,
+          referidoPor: referralId,
+          referralAmountUsed: referralDiscount,
+          frete: Number(frete.toFixed(2)),
+          freteTipo,
           descricao: `Pedido ELITE316 — ${items.length} item(s)`,
           endereco: {
             cep: cepDigits,
@@ -353,11 +645,13 @@ function CheckoutPage() {
           })),
         },
       });
+      console.log("[checkout] pagamento por cartão aprovado");
       toast.success("Pagamento aprovado!");
+      limparDadosLocalStorage();
       cart.clear();
       navigate({ to: "/pedido-sucesso" });
     } catch (err) {
-      console.error(err);
+      console.error("[checkout] erro ao pagar com cartão", err);
       const msg =
         err instanceof Error
           ? err.message
@@ -544,34 +838,152 @@ function CheckoutPage() {
               <h2 className="font-display text-lg">Frete</h2>
               <p className="mt-1 text-xs text-muted-foreground">Calcule o frete até você.</p>
               <div className="mt-3">
-                <FreteSimulador />
+                <FreteSimulador
+                  selectedFrete={freteTipo}
+                  onSelectFrete={(opcao) => {
+                    setFrete(opcao.valor);
+                    setFreteTipo(opcao.nome);
+                  }}
+                />
               </div>
+              {freteTipo && (
+                <p className="mt-3 text-sm text-emerald-300">
+                  Frete selecionado: <strong>{freteTipo}</strong> — {brl(frete)}
+                </p>
+              )}
               <p className="mt-3 text-[11px] italic text-muted-foreground">
                 Enviado de {ORIGEM_LABEL}.
               </p>
 
-              <div className="mt-6 space-y-2 border-t border-border pt-4 text-sm">
-                <div className="flex justify-between">
+              <div className="mt-6 rounded-lg border border-border bg-card p-4">
+                <Label className="text-xs uppercase tracking-widest text-muted-foreground">Cupom de desconto (opcional)</Label>
+                <div className="mt-3 flex flex-col gap-3 sm:flex-row">
+                  <Input
+                    value={couponCode}
+                    onChange={(e) => {
+                      setCouponCode(e.target.value.toUpperCase());
+                      setCouponError(null);
+                      setCouponApplied(false);
+                    }}
+                    placeholder="Ex: VOLTA10"
+                    className="flex-1"
+                  />
+                  <Button
+                    onClick={() => aplicarCupom()}
+                    variant="outline"
+                    className="border-gold/40 text-gold hover:bg-gold/5 hover:border-gold/60 sm:w-auto"
+                  >
+                    Aplicar
+                  </Button>
+                </div>
+                {couponError && !couponApplied && (
+                  <p className="mt-2 text-sm text-red-400/70">{couponError}</p>
+                )}
+                {couponInfo && couponApplied && (
+                  <p className="mt-2 text-sm text-emerald-300">
+                    ✓ Cupom {couponInfo.codigo} aplicado — {couponInfo.tipo === "percentual" ? `${couponInfo.valor}%` : brl(couponInfo.valor)} de desconto.
+                  </p>
+                )}
+              </div>
+
+              {referralCode && (
+                <div className="mt-4 rounded-lg border border-border bg-card/50 p-3 text-xs text-muted-foreground">
+                  Seu código de indicação: <strong className="text-gold">{referralCode}</strong>
+                </div>
+              )}
+
+                  {referralBalance > 0 && (
+                    <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/5 p-3">
+                      <label className="flex cursor-pointer items-center gap-2 text-sm text-emerald-100">
+                        <Checkbox
+                          checked={useReferralBalance}
+                          onCheckedChange={(checked) => setUseReferralBalance(checked === true)}
+                        />
+                        Usar crédito de indicação de {brl(referralBalance)} nesta compra
+                      </label>
+                      {useReferralBalance && (
+                        <p className="mt-2 text-xs text-muted-foreground">
+                          {brl(referralDiscount)} aplicado como saldo de indicação.
+                        </p>
+                      )}
+                    </div>
+                  )}
+
+                  {referralId && (
+                    <div className="rounded-2xl border border-sky-500/20 bg-sky-500/5 p-3 text-sm text-sky-100">
+                      Código de indicação reconhecido: seu pedido será vinculado ao indicador.
+                    </div>
+                  )}
+
+              {missingFields.length > 0 && (
+                <div className="mt-6 rounded-3xl border border-[#cca056] bg-slate-950/95 p-4 text-white shadow-lg shadow-black/20">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                    <div>
+                      <p className="text-xs uppercase tracking-[0.3em] text-[#cca056]">Campos obrigatórios</p>
+                      <p className="mt-2 text-sm font-semibold">Preencha os campos abaixo antes de pagar:</p>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="border-[#cca056] text-[#cca056] hover:bg-[#cca056]/10"
+                      onClick={() => setMissingFields([])}
+                    >
+                      Entendi
+                    </Button>
+                  </div>
+                  <ul className="mt-4 space-y-2 text-sm text-slate-100">
+                    {missingFields.map((field) => (
+                      <li key={field} className="flex items-center gap-2">
+                        <span className="inline-flex h-2.5 w-2.5 rounded-full bg-[#cca056]" />
+                        {field}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              <div className="mt-6 space-y-3 rounded-lg border border-border bg-card/50 p-4">
+                <div className="flex justify-between text-sm">
                   <span className="text-muted-foreground">Subtotal</span>
                   <span>{brl(subtotal)}</span>
                 </div>
-                <div className="flex justify-between font-display text-lg">
+                {couponDiscount > 0 && (
+                  <div className="flex justify-between text-sm text-emerald-300">
+                    <span>Desconto do cupom</span>
+                    <span>-{brl(couponDiscount)}</span>
+                  </div>
+                )}
+                {referralDiscount > 0 && (
+                  <div className="flex justify-between text-sm text-emerald-300">
+                    <span>Uso de saldo de indicação</span>
+                    <span>-{brl(referralDiscount)}</span>
+                  </div>
+                )}
+                <div className="flex justify-between text-sm">
+                  <span className="text-muted-foreground">Frete</span>
+                  <span>{brl(frete)}</span>
+                </div>
+                <div className="border-t border-border pt-3 flex justify-between font-display text-lg">
                   <span>Total</span>
-                  <span className="text-gold">{brl(subtotal)}</span>
+                  <span className="text-gold">{brl(total)}</span>
                 </div>
               </div>
               <Button
-                onClick={abrirPagamento}
-                disabled={loading}
-                className="mt-4 w-full bg-gold text-gold-foreground uppercase tracking-widest hover:bg-gold/90"
+                type="button"
+                onClick={(event) => {
+                  event.preventDefault();
+                  console.log("[checkout] botão PAGAR AGORA clicado");
+                  abrirPagamento();
+                }}
+                disabled={loading || items.length === 0}
+                className="mt-6 w-full bg-gold text-gold-foreground uppercase tracking-widest font-semibold hover:bg-gold/90 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {loading ? (
                   <>
                     <Loader2 className="mr-2 size-4 animate-spin" />
-                    Gerando…
+                    Processando pagamento…
                   </>
                 ) : (
-                  "Pagar agora"
+                  "Pagar Agora"
                 )}
               </Button>
             </Card>
@@ -584,7 +996,7 @@ function CheckoutPage() {
           <DialogHeader>
             <DialogTitle className="font-display text-2xl">Pagamento</DialogTitle>
             <DialogDescription>
-              Total a pagar: <span className="font-semibold text-gold">{brl(subtotal)}</span>
+              Total a pagar: <span className="font-semibold text-gold">{brl(total)}</span>
             </DialogDescription>
           </DialogHeader>
 
@@ -718,6 +1130,50 @@ function CheckoutPage() {
               )}
             </TabsContent>
           </Tabs>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showExitModal} onOpenChange={(open) => { if (!open) setShowExitModal(false); }}>
+        <DialogContent className="max-w-xl border-border bg-card">
+          <DialogHeader>
+            <DialogTitle>Espere! Antes de sair...</DialogTitle>
+            <DialogDescription>
+              Ganhe 10% OFF agora com o cupom <strong>VOLTA10</strong> e finalize seu pedido com mais economia.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <p className="text-sm text-muted-foreground">
+              Vimos que você está quase saindo da página. Aproveite um incentivo especial e não perca seu carrinho.
+            </p>
+            <div className="rounded-2xl border border-gold/30 bg-gold/5 p-4">
+              <p className="text-sm font-semibold text-foreground">Código recomendado</p>
+              <p className="mt-1 text-lg font-bold tracking-widest text-gold">VOLTA10</p>
+              <p className="mt-2 text-sm text-muted-foreground">
+                Cupom válido se estiver cadastrado em <strong>Cupons</strong> e ativo na loja.
+              </p>
+            </div>
+            {couponError && (
+              <p className="text-sm text-red-400">{couponError}</p>
+            )}
+            {couponInfo && couponApplied && (
+              <p className="text-sm text-emerald-300">
+                {couponInfo.codigo} aplicado — você economiza {brl(couponDiscount)}.
+              </p>
+            )}
+          </div>
+          <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:justify-end">
+            <Button
+              className="bg-gold text-gold-foreground hover:bg-gold/90"
+              onClick={() => {
+                void aplicarCupom("VOLTA10");
+              }}
+            >
+              Aplicar VOLTA10
+            </Button>
+            <Button variant="outline" onClick={() => setShowExitModal(false)}>
+              Continuar sem cupom
+            </Button>
+          </div>
         </DialogContent>
       </Dialog>
 

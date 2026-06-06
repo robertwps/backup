@@ -2,6 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { enviarEmailServer } from "@/lib/emails.server";
 import { htmlPagamentoConfirmado } from "@/lib/emails";
+import { applyReferralReward } from "@/lib/referral.server";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -32,7 +33,7 @@ export const Route = createFileRoute("/api/public/asaas-webhook")({
             // Localiza o pedido pelo paymentId armazenado em codigo_rastreio
             const { data: pedido } = await supabaseAdmin
               .from("pedidos")
-              .select("id, cliente_id, email_contato, nome_contato, numero, total, status")
+              .select("id, cliente_id, email_contato, nome_contato, numero, total, status, carrinho_abandonado, referido_por, referral_credit_applied")
               .eq("codigo_rastreio", paymentId)
               .maybeSingle();
 
@@ -43,6 +44,7 @@ export const Route = createFileRoute("/api/public/asaas-webhook")({
                   status: "pago",
                   carrinho_abandonado: false,
                   atualizado_em: new Date().toISOString(),
+                  ...(pedido.carrinho_abandonado ? { recuperado_em: new Date().toISOString() } : {}),
                 })
                 .eq("id", pedido.id);
 
@@ -54,6 +56,10 @@ export const Route = createFileRoute("/api/public/asaas-webhook")({
                 await (supabaseAdmin.from("clientes") as any)
                   .update({ carrinho_abandonado: false })
                   .eq("email", pedido.email_contato);
+              }
+
+              if (pedido.referido_por && !pedido.referral_credit_applied) {
+                await applyReferralReward(supabaseAdmin, pedido.referido_por, pedido.id, pedido.numero);
               }
 
               if (pedido.email_contato) {

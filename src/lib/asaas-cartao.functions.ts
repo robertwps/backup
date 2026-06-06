@@ -3,8 +3,10 @@ import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { enviarEmailServer } from "@/lib/emails.server";
 import { htmlPagamentoConfirmado } from "@/lib/emails";
+import { applyReferralReward } from "@/lib/referral.server";
+import { getAsaasBase, getAsaasApiKey } from "@/lib/asaas.config";
 
-const ASAAS_BASE = "https://api.asaas.com/v3";
+const ASAAS_BASE = getAsaasBase();
 
 type AsaasErrorResponse = {
   errors?: Array<{ description?: string }>;
@@ -40,6 +42,13 @@ export const criarCobrancaCartao = createServerFn({ method: "POST" })
           cidade: z.string().min(1).max(120),
           estado: z.string().min(2).max(2),
         }),
+        subtotal: z.number().positive(),
+        desconto: z.number().nonnegative().default(0),
+        cupomCodigo: z.string().max(100).optional().nullable(),
+        referidoPor: z.string().uuid().optional().nullable(),
+        referralAmountUsed: z.number().nonnegative().default(0),
+        frete: z.number().nonnegative().default(0),
+        freteTipo: z.string().max(50).optional().nullable(),
         cartao: z.object({
           holderName: z.string().min(2).max(120),
           number: z.string().min(13).max(25),
@@ -52,7 +61,7 @@ export const criarCobrancaCartao = createServerFn({ method: "POST" })
       .parse(input),
   )
   .handler(async ({ data, context }) => {
-    const key = process.env.ASAAS_API_KEY;
+    const key = getAsaasApiKey();
     if (!key) throw new Error("Pagamento indisponível: ASAAS_API_KEY não configurada.");
 
     const clienteId = context.userId;
@@ -195,10 +204,11 @@ export const criarCobrancaCartao = createServerFn({ method: "POST" })
       .insert({
         status: "pago",
         metodo_pagamento: "CARTAO",
-        subtotal: data.valor,
+        subtotal: data.subtotal,
         total: data.valor,
-        frete: 0,
-        desconto: 0,
+        frete: data.frete,
+        frete_tipo: data.freteTipo,
+        desconto: data.desconto,
         carrinho_abandonado: false,
         nome_contato: data.nome,
         email_contato: data.email,
@@ -206,6 +216,9 @@ export const criarCobrancaCartao = createServerFn({ method: "POST" })
         codigo_rastreio: payment.id,
         cliente_id: clienteId,
         endereco_id: enderecoId,
+        cupom_codigo: data.cupomCodigo,
+        referido_por: data.referidoPor,
+        referral_credit_applied: false,
       })
       .select("id, numero")
       .single();
@@ -238,6 +251,21 @@ export const criarCobrancaCartao = createServerFn({ method: "POST" })
           await supabase.from("variantes_produto").update({ estoque: novo }).eq("id", vid);
         }
       }
+    }
+
+    if (data.referralAmountUsed > 0 && clienteId) {
+      const { data: clienteAtual } = await supabase
+        .from("clientes")
+        .select("referral_balance")
+        .eq("id", clienteId)
+        .maybeSingle();
+      const currentBalance = Number(clienteAtual?.referral_balance ?? 0);
+      const newBalance = Math.max(0, currentBalance - data.referralAmountUsed);
+      await supabase.from("clientes").update({ referral_balance: newBalance }).eq("id", clienteId);
+    }
+
+    if (data.referidoPor) {
+      await applyReferralReward(supabase, data.referidoPor, pedido.id, pedido.numero);
     }
 
     void enviarEmailServer(

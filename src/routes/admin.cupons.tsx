@@ -20,23 +20,37 @@ function AdminCupons() {
   const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState({ codigo: "", tipo: "percentual", valor: 10 });
+  const [referralActive, setReferralActive] = useState(true);
+  const [referralBonus, setReferralBonus] = useState(20);
+  const [referralLoading, setReferralLoading] = useState(true);
 
   const load = async () => {
     setLoading(true);
+    setReferralLoading(true);
     try {
-      const { data } = await supabase.from("cupons").select("*").order("criado_em", { ascending: false });
-      const arr = (data ?? []) as any[];
+      const [{ data: cupomData }, { data: referralData }] = await Promise.all([
+        supabase.from("cupons").select("*").order("criado_em", { ascending: false }),
+        supabase.from("referral_settings").select("ativo, bonus_amount").eq("id", 1).maybeSingle(),
+      ]);
+
+      const arr = (cupomData ?? []) as any[];
       if (arr.length === 0) {
         const { mockCupons } = await import("@/lib/admin-mock");
         setItems(mockCupons as Cupom[]);
       } else {
         setItems(arr.map((c) => ({ ...c, valor: Number(c.valor) })));
       }
+
+      if (referralData) {
+        setReferralActive(Boolean(referralData.ativo));
+        setReferralBonus(Number(referralData.bonus_amount ?? 20));
+      }
     } catch (err) {
       console.error("[admin/cupons]", err);
       const { mockCupons } = await import("@/lib/admin-mock");
       setItems(mockCupons as Cupom[]);
     }
+    setReferralLoading(false);
     setLoading(false);
   };
   useEffect(() => { load(); }, []);
@@ -48,6 +62,26 @@ function AdminCupons() {
     if (error) return toast.error(error.message);
     toast.success("Cupom criado.");
     setOpen(false); setForm({ codigo: "", tipo: "percentual", valor: 10 }); load();
+  };
+
+  const saveReferralConfig = async () => {
+    if (referralBonus < 0) return toast.error("Valor inválido.");
+    setReferralLoading(true);
+    try {
+      const { error } = await supabase.from("referral_settings").upsert({
+        id: 1,
+        ativo: referralActive,
+        bonus_amount: referralBonus,
+        updated_at: new Date().toISOString(),
+      });
+      if (error) throw error;
+      toast.success("Configuração de indicação salva.");
+    } catch (err) {
+      console.error("[admin/cupons] referral settings", err);
+      toast.error("Falha ao salvar configuração de indicação.");
+    } finally {
+      setReferralLoading(false);
+    }
   };
 
   const toggle = async (c: Cupom) => {
@@ -86,6 +120,37 @@ function AdminCupons() {
               </div>
             ))}
           </div>}
+      </Card>
+
+      <Card className="border-border bg-card p-6">
+        <div className="flex items-center justify-between gap-4">
+          <div>
+            <h2 className="font-display text-2xl">Programa de indicação</h2>
+            <p className="text-sm text-muted-foreground">
+              Configure o crédito liberado para o indicador quando um amigo fizer a primeira compra.
+            </p>
+          </div>
+          <Button onClick={saveReferralConfig} disabled={referralLoading} className="bg-gold text-gold-foreground hover:bg-gold/90">
+            {referralLoading ? "Salvando..." : "Salvar"}
+          </Button>
+        </div>
+
+        <div className="mt-6 grid gap-4 sm:grid-cols-2">
+          <div className="flex flex-col gap-2">
+            <Label>Programa ativo</Label>
+            <Switch checked={referralActive} onCheckedChange={setReferralActive} />
+          </div>
+          <div className="flex flex-col gap-2">
+            <Label>Crédito por indicação (R$)</Label>
+            <Input
+              type="number"
+              min={0}
+              step={0.01}
+              value={referralBonus}
+              onChange={(e) => setReferralBonus(Number(e.target.value))}
+            />
+          </div>
+        </div>
       </Card>
 
       <Dialog open={open} onOpenChange={setOpen}>

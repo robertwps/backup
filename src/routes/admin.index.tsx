@@ -2,7 +2,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Card } from "@/components/ui/card";
-import { DollarSign, Truck, Clock, AlertTriangle, ArrowUpRight, Package, Users, ShoppingBag } from "lucide-react";
+import { DollarSign, Truck, Clock, AlertTriangle, ArrowUpRight, Package, Users, ShoppingBag, MessageCircle } from "lucide-react";
 import { brl } from "@/lib/format";
 
 export const Route = createFileRoute("/admin/")({
@@ -11,6 +11,7 @@ export const Route = createFileRoute("/admin/")({
 
 type Stats = {
   faturamentoMensal: number;
+  faturamentoRecuperado: number;
   pedidosEnviados: number;
   aguardandoPagamento: number;
   alertasEstoque: number;
@@ -21,8 +22,14 @@ type Stats = {
 
 function AdminDashboard() {
   const [stats, setStats] = useState<Stats>({
-    faturamentoMensal: 0, pedidosEnviados: 0, aguardandoPagamento: 0,
-    alertasEstoque: 0, produtos: 0, clientes: 0, totalPedidos: 0,
+    faturamentoMensal: 0,
+    faturamentoRecuperado: 0,
+    pedidosEnviados: 0,
+    aguardandoPagamento: 0,
+    alertasEstoque: 0,
+    produtos: 0,
+    clientes: 0,
+    totalPedidos: 0,
   });
 
   useEffect(() => {
@@ -34,7 +41,7 @@ function AdminDashboard() {
 
         const STATUS_FATURADOS = ["pago", "em_separacao", "enviado", "entregue"];
 
-        const [recv, env, pend, estoque, prod, cli, tot] = await Promise.all([
+        const [recv, env, pend, estoque, prod, cli, tot, rec, aband] = await Promise.all([
           // Faturamento real: soma de todos os pedidos confirmados (não cancelados / não abandonados) no mês
           supabase
             .from("pedidos")
@@ -48,6 +55,12 @@ function AdminDashboard() {
           supabase.from("produtos").select("id", { count: "exact", head: true }),
           supabase.from("clientes").select("id", { count: "exact", head: true }),
           supabase.from("pedidos").select("id", { count: "exact", head: true }).eq("carrinho_abandonado", false),
+          supabase
+            .from("pedidos")
+            .select("total, recuperacao_origem, recuperado_em")
+            .not("recuperacao_origem", "is", null)
+            .gte("recuperado_em", inicioMes.toISOString()),
+          supabase.from("pedidos").select("id", { count: "exact", head: true }).eq("carrinho_abandonado", true),
         ]);
 
         if (recv.error) console.error("[admin/dashboard] faturamento error", recv.error);
@@ -56,8 +69,13 @@ function AdminDashboard() {
           (s, r: any) => s + Number(r.total ?? 0),
           0,
         );
+        const faturamentoRecuperado = (rec.data ?? []).reduce(
+          (s, r: any) => s + Number(r.total ?? 0),
+          0,
+        );
         setStats({
           faturamentoMensal,
+          faturamentoRecuperado,
           pedidosEnviados: env.count ?? 0,
           aguardandoPagamento: pend.count ?? 0,
           alertasEstoque: estoque.data?.length ?? 0,
@@ -89,6 +107,14 @@ function AdminDashboard() {
       hint: "Total despachado",
     },
     {
+      label: "Faturamento Recuperado",
+      value: brl(stats.faturamentoRecuperado),
+      icon: MessageCircle,
+      accent: "from-sky-500/20 to-sky-500/0",
+      iconBg: "bg-sky-500/10 text-sky-300",
+      hint: "Receita de pedidos recuperados",
+    },
+    {
       label: "Aguardando Pagamento",
       value: stats.aguardandoPagamento.toLocaleString("pt-BR"),
       icon: Clock,
@@ -110,6 +136,7 @@ function AdminDashboard() {
     { to: "/admin/produtos", label: "Produtos", value: stats.produtos, icon: Package },
     { to: "/admin/clientes", label: "Clientes", value: stats.clientes, icon: Users },
     { to: "/admin/pedidos", label: "Pedidos", value: stats.totalPedidos, icon: ShoppingBag },
+    { to: "/admin/recuperacao", label: "Recuperação", value: brl(stats.faturamentoRecuperado), icon: MessageCircle },
   ] as const;
 
   return (

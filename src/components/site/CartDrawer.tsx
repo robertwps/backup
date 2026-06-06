@@ -3,14 +3,26 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { Minus, Plus, ShoppingBag, Trash2 } from "lucide-react";
+import { toast } from "sonner";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { cart, cartDrawer, useCart, type CartItem } from "@/lib/cart-store";
 import { brl } from "@/lib/format";
 import { FreteSimulador } from "@/components/site/FreteSimulador";
+import { supabase } from "@/integrations/supabase/client";
+
+type OrderBumpProduct = {
+  id: string;
+  nome: string;
+  preco: number;
+  preco_promocional: number | null;
+  imagem: string | null;
+};
 
 export function CartDrawer() {
   const [open, setOpen] = useState(false);
+  const [orderBump, setOrderBump] = useState<OrderBumpProduct | null>(null);
+  const [bumpLoading, setBumpLoading] = useState(true);
   const { items, subtotal } = useCart();
   const navigate = useNavigate();
 
@@ -21,6 +33,47 @@ export function CartDrawer() {
   }, []);
 
   useEffect(() => {
+    let isActive = true;
+    (async () => {
+      try {
+        const { data: category } = await supabase
+          .from("categorias")
+          .select("id")
+          .eq("slug", "pingentes")
+          .maybeSingle();
+        if (!category?.id) {
+          return;
+        }
+
+        const { data: products } = await supabase
+          .from("produtos")
+          .select("id, nome, preco, preco_promocional, imagem_principal")
+          .eq("categoria_id", category.id)
+          .eq("ativo", true)
+          .order("preco", { ascending: true })
+          .limit(1);
+
+        if (isActive && products?.length) {
+          const product = products[0];
+          setOrderBump({
+            id: product.id,
+            nome: product.nome,
+            preco: Number(product.preco),
+            preco_promocional: product.preco_promocional ? Number(product.preco_promocional) : null,
+            imagem: product.imagem_principal,
+          });
+        }
+      } finally {
+        if (isActive) setBumpLoading(false);
+      }
+    })();
+
+    return () => {
+      isActive = false;
+    };
+  }, []);
+
+  useEffect(() => {
     if (open) {
       document.body.style.overflow = "hidden";
     } else {
@@ -28,6 +81,28 @@ export function CartDrawer() {
     }
     return () => { document.body.style.overflow = ""; };
   }, [open]);
+
+  const bumpVariantId = orderBump ? `pingente-${orderBump.id}` : "";
+  const bumpAlreadyAdded = orderBump ? items.some((item) => item.variante_id === bumpVariantId) : false;
+  const bumpPromoPrice = 29.9;
+  const bumpOriginalPrice = orderBump ? Math.max(59.9, orderBump.preco) : 59.9;
+
+  async function addOrderBump() {
+    if (!orderBump) return;
+    if (bumpAlreadyAdded) return;
+    cart.add({
+      produto_id: orderBump.id,
+      variante_id: bumpVariantId,
+      nome: orderBump.nome,
+      slug: "pingente",
+      comprimento: "único",
+      preco_unit: bumpPromoPrice,
+      preco_original: orderBump.preco,
+      imagem: orderBump.imagem ?? "",
+      quantidade: 1,
+    });
+    toast.success("Pingente de checkout adicionado ao carrinho.");
+  }
 
   return (
     <Sheet open={open} onOpenChange={(v) => { setOpen(v); if (!v) cartDrawer.close(); }}>
@@ -56,6 +131,35 @@ export function CartDrawer() {
               </div>
             </div>
             <div className="space-y-3 border-t border-border pt-4">
+              {orderBump && items.length > 0 && (
+                <div className="rounded-2xl border border-gold/40 bg-gradient-to-br from-background/80 via-neutral-950/80 to-background p-4 text-sm text-foreground shadow-[0_10px_30px_-20px_rgba(255,215,0,0.45)]">
+                  <div className="flex items-start gap-3">
+                    <div className="flex h-14 w-14 items-center justify-center rounded-xl border border-border bg-card/70">
+                      <img
+                        src={orderBump.imagem ?? ""}
+                        alt={orderBump.nome}
+                        className="h-full w-full object-cover"
+                      />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-semibold text-foreground">Aproveite também</p>
+                      <p className="mt-1 text-xs text-muted-foreground">🔥 Adicione um Pingente Exclusivo para combinar com sua corrente por apenas +{brl(bumpPromoPrice)}</p>
+                    </div>
+                    <div className="text-right text-xs text-muted-foreground">
+                      <div className="line-through">{brl(bumpOriginalPrice)}</div>
+                      <div className="font-semibold text-gold">{brl(bumpPromoPrice)}</div>
+                    </div>
+                  </div>
+                  <Button
+                    onClick={addOrderBump}
+                    className="mt-4 w-full bg-gold text-gold-foreground uppercase tracking-widest hover:bg-gold/90"
+                    disabled={bumpAlreadyAdded}
+                  >
+                    {bumpAlreadyAdded ? "Adicionado" : "+ Adicionar"}
+                  </Button>
+                </div>
+              )}
+
               <FreteSimulador compact />
               <div className="flex items-center justify-between text-sm">
                 <span className="text-muted-foreground">Subtotal</span>

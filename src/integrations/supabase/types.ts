@@ -44,6 +44,51 @@ export type Database = {
         }
         Relationships: []
       }
+      notifications: {
+        Row: {
+          created_at: string
+          id: string
+          is_read: boolean
+          message: string
+          product_id: string | null
+          title: string
+          user_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          is_read?: boolean
+          message: string
+          product_id?: string | null
+          title: string
+          user_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          is_read?: boolean
+          message?: string
+          product_id?: string | null
+          title?: string
+          user_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "notifications_product_id_fkey"
+            columns: ["product_id"]
+            isOneToOne: false
+            referencedRelation: "produtos"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "notifications_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "clientes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       categorias: {
         Row: {
           criada_em: string
@@ -81,6 +126,8 @@ export type Database = {
           email: string | null
           id: string
           nome_completo: string | null
+          referral_balance: number
+          referral_code: string | null
           telefone: string | null
         }
         Insert: {
@@ -89,6 +136,8 @@ export type Database = {
           email?: string | null
           id: string
           nome_completo?: string | null
+          referral_balance?: number
+          referral_code?: string | null
           telefone?: string | null
         }
         Update: {
@@ -97,6 +146,8 @@ export type Database = {
           email?: string | null
           id?: string
           nome_completo?: string | null
+          referral_balance?: number
+          referral_code?: string | null
           telefone?: string | null
         }
         Relationships: []
@@ -160,6 +211,30 @@ export type Database = {
           id?: string
           tipo?: string
           valor?: number
+        }
+        Relationships: []
+      }
+      referral_settings: {
+        Row: {
+          ativo: boolean
+          bonus_amount: number
+          created_at: string
+          id: number
+          updated_at: string
+        }
+        Insert: {
+          ativo?: boolean
+          bonus_amount?: number
+          created_at?: string
+          id?: number
+          updated_at?: string
+        }
+        Update: {
+          ativo?: boolean
+          bonus_amount?: number
+          created_at?: string
+          id?: number
+          updated_at?: string
         }
         Relationships: []
       }
@@ -461,10 +536,15 @@ export type Database = {
           metodo_pagamento: string | null
           nome_contato: string | null
           numero: number
+          referido_por: string | null
+          referral_credit_applied: boolean
           status: string
           subtotal: number
           telefone_contato: string | null
           total: number
+          abandoned_email_sent: boolean
+          recuperacao_origem: string | null
+          recuperado_em: string | null
         }
         Insert: {
           atualizado_em?: string
@@ -482,10 +562,15 @@ export type Database = {
           metodo_pagamento?: string | null
           nome_contato?: string | null
           numero?: number
+          referido_por?: string | null
+          referral_credit_applied?: boolean
           status?: string
           subtotal?: number
           telefone_contato?: string | null
           total?: number
+          abandoned_email_sent?: boolean
+          recuperacao_origem?: string | null
+          recuperado_em?: string | null
         }
         Update: {
           atualizado_em?: string
@@ -503,10 +588,15 @@ export type Database = {
           metodo_pagamento?: string | null
           nome_contato?: string | null
           numero?: number
+          referido_por?: string | null
+          referral_credit_applied?: boolean
           status?: string
           subtotal?: number
           telefone_contato?: string | null
           total?: number
+          abandoned_email_sent?: boolean
+          recuperacao_origem?: string | null
+          recuperado_em?: string | null
         }
         Relationships: [
           {

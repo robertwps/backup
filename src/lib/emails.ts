@@ -110,6 +110,22 @@ export function htmlPedidoConfirmado(args: {
   );
 }
 
+export function htmlRecuperacaoCarrinho(args: {
+  nome: string;
+  numero: string | number;
+  total: number;
+  itens: ItemPedido[];
+}) {
+  return layout(
+    "Seu carrinho está te esperando",
+    `<h2 style="margin:0 0 12px;">Olá ${args.nome || "cliente"}, seu carrinho ainda está ativo!</h2>
+     <p style="margin:0 0 16px;">Notamos que você deixou um pedido <strong>#${args.numero}</strong> no valor de <strong>${brl(args.total)}</strong>. Ainda dá tempo de finalizar com <strong>5% OFF</strong> usando o cupom <strong>VOLTA5</strong>.</p>
+     ${tabelaItens(args.itens)}
+     <p style="margin:18px 0 0;font-size:14px;color:#555;">Volte agora e conclua sua compra antes que os itens saiam do estoque.</p>
+     <p style="margin:18px 0 0;font-size:13px;color:#777;">Se preferir, responda a este e-mail e nossa equipe ajuda você na finalização.</p>`,
+  );
+}
+
 export function htmlPagamentoConfirmado(args: { nome: string; numero: string | number; total: number }) {
   return layout(
     "Pagamento confirmado",

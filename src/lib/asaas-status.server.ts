@@ -1,8 +1,9 @@
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { enviarEmailServer } from "@/lib/emails.server";
 import { htmlPagamentoConfirmado } from "@/lib/emails";
+import { getAsaasBase, getAsaasApiKey } from "@/lib/asaas.config";
 
-const ASAAS_BASE = "https://api.asaas.com/v3";
+const ASAAS_BASE = getAsaasBase();
 
 const STATUS_APROVADOS = new Set([
   "RECEIVED",
@@ -13,7 +14,7 @@ const STATUS_APROVADOS = new Set([
 ]);
 
 export async function verificarPagamentoAsaasServer(paymentId: string) {
-  const key = process.env.ASAAS_API_KEY;
+  const key = getAsaasApiKey();
   if (!key) throw new Error("Pagamento indisponível: ASAAS_API_KEY não configurada.");
 
   const res = await fetch(`${ASAAS_BASE}/payments/${paymentId}`, {
@@ -42,7 +43,7 @@ export async function verificarPagamentoAsaasServer(paymentId: string) {
   // Atualiza o pedido vinculado pelo paymentId em codigo_rastreio
   const { data: pedido } = await supabaseAdmin
     .from("pedidos")
-    .select("id, cliente_id, email_contato, nome_contato, numero, total, status")
+    .select("id, cliente_id, email_contato, nome_contato, numero, total, status, carrinho_abandonado")
     .eq("codigo_rastreio", paymentId)
     .maybeSingle();
 
@@ -53,6 +54,7 @@ export async function verificarPagamentoAsaasServer(paymentId: string) {
         status: "pago",
         carrinho_abandonado: false,
         atualizado_em: new Date().toISOString(),
+        ...(pedido.carrinho_abandonado ? { recuperado_em: new Date().toISOString() } : {}),
       })
       .eq("id", pedido.id);
 

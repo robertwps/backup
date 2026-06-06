@@ -18,6 +18,7 @@ import {
   Search,
   ChevronDown,
   Sparkles,
+  MessageCircle,
 } from "lucide-react";
 import { toast } from "sonner";
 import { NotificationsBell } from "@/components/admin/NotificationsBell";
@@ -109,6 +110,7 @@ function AdminLayout() {
   const nav: Array<{ to: any; label: string; icon: any; exact?: boolean }> = [
     { to: "/admin", label: "Visão Geral", icon: LayoutDashboard, exact: true },
     { to: "/admin/pedidos", label: "Pedidos", icon: ShoppingBag },
+    { to: "/admin/recuperacao", label: "Recuperação", icon: MessageCircle },
     { to: "/admin/produtos", label: "Produtos", icon: Package },
     { to: "/admin/clientes", label: "Clientes", icon: Users },
     { to: "/admin/categorias", label: "Categorias", icon: Tag },

@@ -1,10 +1,11 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { ChevronLeft, ChevronRight, Ruler, ShoppingBag, ShieldCheck, Truck, X } from "lucide-react";
 import { toast } from "sonner";
 import { Navbar } from "@/components/site/Navbar";
 import { Footer } from "@/components/site/Footer";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { supabase } from "@/integrations/supabase/client";
 import { cart, cartDrawer } from "@/lib/cart-store";
@@ -36,7 +37,17 @@ type ProdutoData = {
   preco_promocional: number | null;
   imagem_principal: string | null;
   material: string;
+  categoria_id: string | null;
   imagens: string[];
+};
+
+type RelatedProduct = {
+  id: string;
+  nome: string;
+  slug: string;
+  preco: number;
+  preco_promocional: number | null;
+  imagem: string | null;
 };
 
 const PLACEHOLDER =
@@ -62,6 +73,7 @@ type ComboConfig = {
 function ProdutoPage() {
   const { slug } = Route.useParams();
 
+  const navigate = useNavigate();
   const [produto, setProduto] = useState<ProdutoData | null>(null);
   const [loading, setLoading] = useState(true);
   const [imgIdx, setImgIdx] = useState(0);
@@ -69,6 +81,10 @@ function ProdutoPage() {
   const [guideOpen, setGuideOpen] = useState(false);
   const [variantes, setVariantes] = useState<{ comprimento: string; estoque: number }[]>([]);
   const [combo, setCombo] = useState<ComboConfig | null>(null);
+  const [kitAccessories, setKitAccessories] = useState<RelatedProduct[]>([]);
+  const [selectedKitIds, setSelectedKitIds] = useState<Record<string, boolean>>({});
+  const [kitLoading, setKitLoading] = useState(false);
+  const [viewers] = useState(() => 3 + Math.floor(Math.random() * 5));
 
   useEffect(() => {
     let alive = true;
@@ -77,7 +93,7 @@ function ProdutoPage() {
       try {
         const { data: p } = await supabase
           .from("produtos")
-          .select("id, nome, slug, descricao, preco, preco_promocional, imagem_principal, material")
+          .select("id, nome, slug, descricao, preco, preco_promocional, imagem_principal, material, categoria_id")
           .ilike("slug", slug)
           .maybeSingle();
 
@@ -108,6 +124,7 @@ function ProdutoPage() {
           descricao: p.descricao, preco: Number(p.preco),
           preco_promocional: p.preco_promocional ? Number(p.preco_promocional) : null,
           imagem_principal: p.imagem_principal, material: p.material,
+          categoria_id: p.categoria_id ?? null,
           imagens: imagens.length ? imagens : [PLACEHOLDER, PLACEHOLDER, PLACEHOLDER],
         });
 
@@ -149,11 +166,73 @@ function ProdutoPage() {
     return () => { alive = false; };
   }, [slug]);
 
+  useEffect(() => {
+    if (!produto) return;
+    let alive = true;
+    setKitLoading(true);
+
+    (async () => {
+      const accessories: RelatedProduct[] = [];
+      if (combo?.produto) {
+        accessories.push({
+          id: combo.produto.id,
+          nome: combo.produto.nome,
+          slug: combo.produto.slug,
+          preco: combo.produto.preco,
+          preco_promocional: combo.produto.preco_promocional,
+          imagem: combo.produto.imagem,
+        });
+      }
+
+      if (produto.categoria_id) {
+        const { data: related } = await supabase
+          .from("produtos")
+          .select("id, nome, slug, preco, preco_promocional, imagem_principal")
+          .eq("categoria_id", produto.categoria_id)
+          .neq("id", produto.id)
+          .eq("ativo", true)
+          .limit(2);
+
+        if (alive && related?.length) {
+          for (const item of related) {
+            if (!accessories.some((a) => a.id === item.id)) {
+              accessories.push({
+                id: item.id,
+                nome: item.nome,
+                slug: item.slug,
+                preco: Number(item.preco),
+                preco_promocional: item.preco_promocional ? Number(item.preco_promocional) : null,
+                imagem: item.imagem_principal,
+              });
+            }
+          }
+        }
+      }
+
+      if (alive) {
+        setKitAccessories(accessories);
+        setSelectedKitIds(accessories.reduce((acc, item) => {
+          acc[item.id] = false;
+          return acc;
+        }, {} as Record<string, boolean>));
+        setKitLoading(false);
+      }
+    })();
+
+    return () => { alive = false; };
+  }, [produto?.id, produto?.categoria_id, combo?.produto?.id]);
+
   const varMap = useMemo(() => {
     const m = new Map<string, number>();
     for (const v of variantes) m.set(v.comprimento, v.estoque);
     return m;
   }, [variantes]);
+
+  const stockRemaining = comprimento ? varMap.get(comprimento) ?? null : null;
+  const showScarcityText = stockRemaining !== null && stockRemaining <= 5;
+  const kitDiscount = combo?.desconto ?? 25;
+  const kitSelectedAll = kitAccessories.length > 0 && kitAccessories.every((item) => selectedKitIds[item.id]);
+  const selectedAccessories = kitAccessories.filter((item) => selectedKitIds[item.id]);
 
   const precoFinal = produto ? effectivePrice(produto.preco, produto.preco_promocional) : 0;
   const desconto = produto ? discountPct(produto.preco, produto.preco_promocional) : null;
@@ -177,6 +256,73 @@ function ProdutoPage() {
     });
     toast.success(`${produto.nome} (${comprimento}) adicionado ao carrinho`);
     cartDrawer.open();
+  }
+
+  function handleExpressBuy() {
+    if (!produto) return;
+    if (!comprimento) {
+      toast.error("Selecione um comprimento para usar o checkout expresso.");
+      return;
+    }
+    cart.add({
+      produto_id: produto.id,
+      variante_id: `${produto.id}-${comprimento}`,
+      nome: produto.nome,
+      slug: produto.slug,
+      comprimento,
+      preco_unit: precoFinal,
+      preco_original: produto.preco,
+      imagem: produto.imagens[0] ?? PLACEHOLDER,
+      quantidade: 1,
+    });
+    navigate({ to: "/checkout" });
+  }
+
+  function toggleKitAccessory(id: string) {
+    setSelectedKitIds((current) => ({ ...current, [id]: !current[id] }));
+  }
+
+  function handleBuyKit() {
+    if (!produto) return;
+    if (!comprimento) {
+      toast.error("Selecione um comprimento antes de comprar o kit.");
+      return;
+    }
+
+    const mainKitVariantId = `${produto.id}-${comprimento}-kit`;
+    const mainKitPrice = kitSelectedAll ? Math.max(0, precoFinal - kitDiscount) : precoFinal;
+    cart.add({
+      produto_id: produto.id,
+      variante_id: mainKitVariantId,
+      nome: `${produto.nome} ${kitSelectedAll ? "(Kit Completo)" : "(Kit Parcial)"}`,
+      slug: produto.slug,
+      comprimento,
+      preco_unit: mainKitPrice,
+      preco_original: produto.preco,
+      imagem: produto.imagens[0] ?? PLACEHOLDER,
+      quantidade: 1,
+    });
+
+    selectedAccessories.forEach((accessory) => {
+      cart.add({
+        produto_id: accessory.id,
+        variante_id: `kit-${accessory.id}`,
+        nome: accessory.nome,
+        slug: accessory.slug,
+        comprimento: "único",
+        preco_unit: effectivePrice(accessory.preco, accessory.preco_promocional),
+        preco_original: accessory.preco,
+        imagem: accessory.imagem ?? PLACEHOLDER,
+        quantidade: 1,
+      });
+    });
+
+    toast.success(
+      kitSelectedAll
+        ? "Kit completo adicionado! Siga direto para o checkout."
+        : "Itens do kit adicionados ao carrinho. Continue para finalizar.",
+    );
+    navigate({ to: "/checkout" });
   }
 
   const imagens = produto?.imagens ?? [];
@@ -327,7 +473,96 @@ function ProdutoPage() {
               >
                 <ShoppingBag className="size-5" /> Adicionar ao Carrinho
               </Button>
+              <Button
+                size="lg"
+                variant="outline"
+                onClick={handleExpressBuy}
+                className="h-14 flex-1 border-gold bg-background text-gold text-sm uppercase tracking-[0.25em] shadow-[0_10px_30px_-10px_color-mix(in_oklab,var(--gold)_20%,transparent)] hover:bg-gold/5"
+              >
+                Comprar Agora
+              </Button>
             </div>
+
+            <div className="mt-4 space-y-2 text-sm">
+              {showScarcityText && (
+                <p className="text-sm text-red-300">🔥 Restam apenas {stockRemaining} unidades deste produto!</p>
+              )}
+              <p className="text-xs text-muted-foreground">
+                👁️ {viewers} pessoas estão olhando este produto agora
+              </p>
+            </div>
+
+            {kitAccessories.length > 0 && (
+              <div className="mt-8 rounded-2xl border border-border bg-card/80 p-5">
+                <div className="mb-4 flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-xs uppercase tracking-[0.3em] text-gold">Monte seu Kit Elite</p>
+                    <h2 className="mt-2 text-xl font-display text-foreground">Estilo Completo</h2>
+                  </div>
+                  <span className="rounded-full bg-gold/10 px-3 py-1 text-xs font-semibold text-gold">
+                    Economize {brl(kitDiscount)}
+                  </span>
+                </div>
+
+                <div className="space-y-4">
+                  <div className="rounded-2xl border border-border bg-background/80 p-4">
+                    <div className="flex items-center gap-3">
+                      <div className="aspect-square h-14 w-14 overflow-hidden rounded-lg border border-border bg-gradient-to-br from-neutral-900 to-black">
+                        <img src={produto?.imagens[0] ?? PLACEHOLDER} alt={produto?.nome ?? "Produto"} className="h-full w-full object-cover" />
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium text-foreground">{produto?.nome}</p>
+                        <p className="text-xs text-muted-foreground">Produto principal incluído</p>
+                      </div>
+                      <span className="ml-auto rounded-full bg-platinum/10 px-2 py-1 text-xs uppercase tracking-[0.2em] text-muted-foreground">
+                        Incluído
+                      </span>
+                    </div>
+                  </div>
+
+                  {kitLoading ? (
+                    <p className="text-sm text-muted-foreground">Carregando sugestões do kit...</p>
+                  ) : (
+                    <div className="space-y-3">
+                      {kitAccessories.map((accessory) => {
+                        const precoAcessorio = effectivePrice(accessory.preco, accessory.preco_promocional);
+                        return (
+                          <label key={accessory.id} className="flex cursor-pointer items-center gap-3 rounded-2xl border border-border bg-background/70 p-4 transition hover:border-gold/40">
+                            <Checkbox
+                              checked={Boolean(selectedKitIds[accessory.id])}
+                              onCheckedChange={() => toggleKitAccessory(accessory.id)}
+                            />
+                            <div className="flex-1">
+                              <p className="text-sm font-medium text-foreground">{accessory.nome}</p>
+                              <p className="text-xs text-muted-foreground">Use o kit completo para combinar com sua corrente.</p>
+                            </div>
+                            <div className="text-right text-sm">
+                              {accessory.preco_promocional ? (
+                                <div className="text-xs text-muted-foreground line-through">{brl(accessory.preco)}</div>
+                              ) : null}
+                              <div className="font-semibold text-gold">{brl(precoAcessorio)}</div>
+                            </div>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  <div className="mt-4 flex flex-col gap-3 sm:flex-row">
+                    <Button
+                      onClick={handleBuyKit}
+                      className="h-14 flex-1 bg-gold text-gold-foreground text-sm uppercase tracking-[0.25em] shadow-[0_10px_30px_-10px_color-mix(in_oklab,var(--gold)_60%,transparent)] hover:bg-gold/90"
+                    >
+                      {kitSelectedAll ? "Comprar Kit Completo" : "Adicionar Kit ao Carrinho"}
+                    </Button>
+                    <div className="flex-1 rounded-2xl border border-border bg-background/90 p-4 text-sm text-muted-foreground">
+                      <p className="font-medium text-foreground">{kitSelectedAll ? "Kit completo selecionado" : "Marque todos para ganhar desconto"}</p>
+                      <p className="mt-1">Selecione todos os itens e receba desconto automático no seu combo.</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
 
             {produto && combo?.ativo && combo.produto && (
               <ComboUpsell

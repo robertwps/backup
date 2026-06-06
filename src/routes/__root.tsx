@@ -1,4 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { useEffect } from "react";
 import {
   Outlet,
   Link,
@@ -113,6 +114,23 @@ function RootShell({ children }: { children: React.ReactNode }) {
 
 function RootComponent() {
   const { queryClient } = Route.useRouteContext();
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const ref = params.get("ref")?.trim() || params.get("r")?.trim();
+      if (ref) {
+        window.localStorage.setItem("elite316_referral_code", ref.toUpperCase());
+        params.delete("ref");
+        params.delete("r");
+        const cleanUrl = `${window.location.pathname}${params.toString() ? `?${params.toString()}` : ""}${window.location.hash}`;
+        window.history.replaceState({}, "", cleanUrl);
+      }
+    } catch (error) {
+      console.warn("Unable to save referral code", error);
+    }
+  }, []);
 
   return (
     <QueryClientProvider client={queryClient}>
